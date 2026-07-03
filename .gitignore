@@ -8,5 +8,8 @@ backend/.env
 frontend/node_modules/
 frontend/.next/
 frontend/.env.local
+# Test audio files
+backend/*.wav
+backend/*.m4a
 
 .DS_Store
