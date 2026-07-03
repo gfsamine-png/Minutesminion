@@ -1,3 +1,4 @@
+from app.task_parser import extract_tasks
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
@@ -15,9 +16,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
 @app.post("/api/process-audio")
 async def process_audio(file: UploadFile = File(...)):
     validate_extension(file.filename)
@@ -33,10 +37,12 @@ async def process_audio(file: UploadFile = File(...)):
         os.remove(tmp_path)
         raise HTTPException(status_code=400, detail=str(e))
 
-   transcript = transcribe(tmp_path)
+    transcript = transcribe(tmp_path)
     os.remove(tmp_path)
+    tasks=extract_tasks(transcript)
 
     return {
         "transcript": transcript,
         "duration_seconds": duration,
+        "tasks": tasks,
     }
