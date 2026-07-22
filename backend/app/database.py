@@ -55,3 +55,27 @@ def save_processed_note(transcript: str, tasks: list, duration_seconds: float, f
         return note
     finally:
         session.close()
+from sqlalchemy.orm.attributes import flag_modified
+
+def get_all_notes():
+    session = SessionLocal()
+    try:
+        return session.query(ProcessedNote).order_by(ProcessedNote.created_at.desc()).all()
+    finally:
+        session.close()
+
+def toggle_task(note_id: int, task_id: int):
+    session = SessionLocal()
+    try:
+        note = session.query(ProcessedNote).filter(ProcessedNote.id == note_id).first()
+        if not note:
+            return None
+        for t in note.tasks:
+            if t["id"] == task_id:
+                t["completed"] = not t["completed"]
+        flag_modified(note, "tasks")  # tells SQLAlchemy the JSON field changed in-place
+        session.commit()
+        session.refresh(note)
+        return note
+    finally:
+        session.close()

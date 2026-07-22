@@ -11,5 +11,6 @@ frontend/.env.local
 # Test audio files
 backend/*.wav
 backend/*.m4a
+google-calendar-credentials.json
 
 .DS_Store

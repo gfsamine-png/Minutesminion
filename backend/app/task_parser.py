@@ -1,4 +1,6 @@
 import os
+import json
+from datetime import datetime
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -6,23 +8,45 @@ load_dotenv()
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-SYSTEM_PROMPT = """You extract actionable tasks from a spoken voice note transcript.
-Return ONLY a JSON array of task strings, nothing else. No preamble, no markdown.
+SYSTEM_PROMPT_TEMPLATE = """You extract actionable tasks from a spoken voice note transcript.
+
+Today's date is {today} ({weekday}).
+
+For each task, determine whether it has a SPECIFIC, SCHEDULABLE date AND time.
+Only set "has_datetime" to true when BOTH a specific day and a specific time are
+clearly stated or can be confidently resolved using today's date (e.g. "Friday at 3pm",
+"tomorrow at 10am", "next Tuesday at noon"). Vague references like "soon", "next week"
+(with no specific day), or a day with no time, or a time with no day, must be marked false.
+Each task should be extracted with its time and date . 
+Return ONLY a JSON array of task objects, nothing else. No preamble, no markdown, no code fences.
+Each object must follow this exact structure:
+{{"text": "the task description + its time and date ", "has_datetime": true or false, "scheduled_at": "YYYY-MM-DDTHH:MM:SS" or null}}
+
 If there are no clear action items, return an empty array: []
 
-Example input: "please remember to update the readme file and email the client the spec"
-Example output: ["Update the readme file", "Email the client the spec"]
+Example input: "please remember to update the readme file and meet the client friday at 3pm"
+Example output:
+[
+  {{"text": "Update the readme file", "has_datetime": false, "scheduled_at": null}},
+  {{"text": "Meet the client at 3pm", "has_datetime": true, "scheduled_at": "2026-07-24T15:00:00"}}
+]
 """
 
 
-def extract_tasks(transcript: str) -> list[str]:
+def extract_tasks(transcript: str) -> list[dict]:
     if not transcript or not transcript.strip():
         return []
+
+    now = datetime.now()
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+        today=now.strftime("%Y-%m-%d"),
+        weekday=now.strftime("%A"),
+    )
 
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": transcript},
         ],
         temperature=0,
@@ -30,12 +54,25 @@ def extract_tasks(transcript: str) -> list[str]:
 
     raw = response.choices[0].message.content.strip()
 
-    import json
     try:
         tasks = json.loads(raw)
-        return tasks if isinstance(tasks, list) else []
+        if not isinstance(tasks, list):
+            return []
+
+        cleaned = []
+        for t in tasks:
+            if not isinstance(t, dict) or "text" not in t:
+                continue
+            cleaned.append({
+                "text": t.get("text", ""),
+                "has_datetime": bool(t.get("has_datetime", False)),
+                "scheduled_at": t.get("scheduled_at"),
+            })
+        return cleaned
     except json.JSONDecodeError:
         return []
+
+
 def generate_daily_summary(all_tasks: list[str]) -> dict:
     if not all_tasks:
         return {
@@ -70,7 +107,6 @@ Analyze this list and return ONLY a JSON object with this exact structure, nothi
 
     raw = response.choices[0].message.content.strip()
 
-    import json
     try:
         result = json.loads(raw)
         result["total_tasks"] = len(all_tasks)

@@ -1,0 +1,294 @@
+{
+  "name": "My workflow 2",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 14,
+              "triggerAtMinute": 5
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7e647c8f-de73-48c3-a387-59f1db616940",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:8000/api/daily-summary",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "c966bb1e-198e-45e3-a135-403e2c2cd94c",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cf6abb73-6470-4401-b5cb-ea4d81b4d227",
+              "name": "subject",
+              "value": "=Daily Summary - {{ $json.date }}",
+              "type": "string"
+            },
+            {
+              "id": "535dfdad-69f2-4f81-a109-85d0caf7c304",
+              "name": "body ",
+              "value": "=Total tasks yesterday: {{ $json.total_tasks }}<br><br>Summary: {{ $json.summary_text }}<br><br>Important tasks: {{ $json.important_tasks.join(', ') }}<br><br>Repeated tasks: {{ $json.repeated_tasks.join(', ') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        704,
+        0
+      ],
+      "id": "a371a773-f4aa-48c1-b6b7-ef780136326a",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "fromEmail": "minutesminionagent@gmail.com",
+        "toEmail": "gfs.amine@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json['body '] }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "03474d76-6bac-408f-a034-dea1afd7c5a6",
+      "name": "Send an Email",
+      "webhookId": "285789ac-9b0f-419d-bb40-020d655f2534",
+      "credentials": {
+        "smtp": {
+          "id": "ZKppdIAvPX4hGSLr",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1y-l7MV4j9yONAM9EokYwPi8Ij7Sx4o20o6lMfLdZWl8/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1y-l7MV4j9yONAM9EokYwPi8Ij7Sx4o20o6lMfLdZWl8/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date ": "={{ $json.date }}",
+            "total_tasks": "={{ $json.total_tasks }}",
+            "summary_text": "={{ $json.summary_text }}",
+            "important_tasks": "={{ $json.important_tasks.join(', ') }}",
+            "repeated_tasks": "={{ $json.repeated_tasks.join(', ') }}"
+          },
+          "matchingColumns": [
+            "date "
+          ],
+          "schema": [
+            {
+              "id": "date ",
+              "displayName": "date ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "total_tasks",
+              "displayName": "total_tasks",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "summary_text",
+              "displayName": "summary_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "important_tasks",
+              "displayName": "important_tasks",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "repeated_tasks",
+              "displayName": "repeated_tasks",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        544,
+        -80
+      ],
+      "id": "b92e9110-f33e-48d7-86b6-550460e85b48",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "KTnPP9xLBIz6vsqs",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "536b62b1-375d-49c8-911e-931a52ca252c",
+              "leftValue": "={{ $json.total_tasks }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        384,
+        48
+      ],
+      "id": "034a6419-eb87-40eb-86f3-a7434db28ed2",
+      "name": "If"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "c0c8fed4-2237-4d22-a07f-2ad81d9ec1a4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "39d38d30bf17c4679479d15cfa358ec562ce43a2bea897a3b657f85ded3bc66d"
+  },
+  "nodeGroups": [],
+  "id": "o4CiFMddhRAIAdcT",
+  "tags": []
+}
