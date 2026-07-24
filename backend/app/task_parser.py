@@ -17,10 +17,16 @@ Only set "has_datetime" to true when BOTH a specific day and a specific time are
 clearly stated or can be confidently resolved using today's date (e.g. "Friday at 3pm",
 "tomorrow at 10am", "next Tuesday at noon"). Vague references like "soon", "next week"
 (with no specific day), or a day with no time, or a time with no day, must be marked false.
-Each task should be extracted with its time and date . 
+
+IMPORTANT — resolving a bare weekday name (e.g. "Thursday", "Monday") with no other
+qualifier: always resolve it to the NEXT upcoming occurrence of that weekday, counting
+forward from today, even if that weekday has already occurred earlier in the current
+week. NEVER resolve a bare weekday name to a date in the past. Only resolve to a past
+date if the transcript explicitly says so (e.g. "last Thursday").
+
 Return ONLY a JSON array of task objects, nothing else. No preamble, no markdown, no code fences.
 Each object must follow this exact structure:
-{{"text": "the task description + its time and date ", "has_datetime": true or false, "scheduled_at": "YYYY-MM-DDTHH:MM:SS" or null}}
+{{"text": "the task description", "has_datetime": true or false, "scheduled_at": "YYYY-MM-DDTHH:MM:SS" or null}}
 
 If there are no clear action items, return an empty array: []
 
@@ -28,7 +34,7 @@ Example input: "please remember to update the readme file and meet the client fr
 Example output:
 [
   {{"text": "Update the readme file", "has_datetime": false, "scheduled_at": null}},
-  {{"text": "Meet the client at 3pm", "has_datetime": true, "scheduled_at": "2026-07-24T15:00:00"}}
+  {{"text": "Meet the client", "has_datetime": true, "scheduled_at": "2026-07-24T15:00:00"}}
 ]
 """
 

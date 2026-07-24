@@ -35,6 +35,14 @@ def create_calendar_event(text: str, scheduled_at: str) -> dict | None:
     except (ValueError, TypeError):
         return None
 
+    # Defensive guard: even with prompt-level instructions to always resolve
+    # forward, an LLM can occasionally misresolve a relative date into the
+    # past. Skip creating an event rather than silently scheduling something
+    # that already happened.
+    if start_dt < datetime.now():
+        print(f"[calendar] Skipped '{text}': resolved date {start_dt} is in the past.")
+        return None
+
     end_dt = start_dt + timedelta(minutes=DEFAULT_DURATION_MINUTES)
 
     event_body = {
