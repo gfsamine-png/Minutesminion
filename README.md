@@ -25,7 +25,9 @@ Turn a voice note or a quick line of text into structured, trackable, schedulabl
 
 ## Overview
 
-MinutesMinion captures a note — spoken or typed — and turns it into a structured task list, without any manual effort. Audio is transcribed locally with Whisper, an LLM (Groq / Llama 3.3) extracts actionable tasks and detects any specific date or time mentioned, and anything schedulable is automatically created as a real Google Calendar event. A scheduled automation delivers a daily summary of the previous day's activity by email and logs it to a spreadsheet.
+MinutesMinion captures a note — spoken or typed — and turns it into a structured task list, without any manual effort. Audio is transcribed locally with Whisper, an LLM (Groq / Llama 3.3) extracts actionable tasks and detects any specific date or time mentioned, and anything schedulable is automatically created as a real Google Calendar event. A scheduled automation, orchestrated by n8n, delivers a daily summary of the previous day's activity by email and logs it to a spreadsheet.
+
+The entire stack — frontend, backend, database, and automation — runs as a single set of Docker containers via `docker compose up`.
 
 The system is designed around a clear architectural boundary: **all reasoning (transcription, extraction, scheduling) lives in the backend**, while **automation (n8n) only handles timing and delivery**. This keeps the core logic independently testable and reusable, regardless of which automation tool sits on top of it.
 
@@ -41,7 +43,8 @@ The system is designed around a clear architectural boundary: **all reasoning (t
 **Understanding**
 - Local Whisper transcription (no external API call for audio-to-text)
 - LLM-based task extraction, robust to imperfect/garbled transcripts
-- Automatic detection of specific, schedulable dates and times within tasks (e.g. "Friday at 3pm"), with correct forward-resolution of relative dates
+- Automatic detection of specific, schedulable dates and times within tasks (e.g. "Friday at 3pm")
+- Date resolution uses a deterministic, pre-computed lookup table (generated in Python) rather than relying on the LLM to calculate dates itself — LLMs are unreliable at date arithmetic, so the model only matches a mentioned day to a row in a table Python has already computed correctly
 
 **Action**
 - Detected date/time tasks are automatically created as Google Calendar events, in real time
@@ -49,9 +52,10 @@ The system is designed around a clear architectural boundary: **all reasoning (t
 - A History page lists every past note with live, saved completion state
 
 **Automation**
-- A scheduled daily workflow (n8n) summarizes the previous day's tasks via LLM, classifying repeated and high-priority items
+- A scheduled daily n8n workflow summarizes the previous day's tasks via LLM, classifying repeated and high-priority items
 - The summary is emailed and logged as a new row in a Google Sheet
 - Days with zero tasks are automatically skipped, avoiding noise
+- n8n runs as part of the same Docker Compose stack as the rest of the application
 
 ---
 
@@ -77,26 +81,30 @@ The system is designed around a clear architectural boundary: **all reasoning (t
                  ┌──────────▼──┐   ┌──▼───────────────────┐
                  │ PostgreSQL   │   │ Google Calendar       │
                  │ (all notes)  │   │ (service account)     │
-                 └──────────────┘   └───────────────────────┘
-
-                    ┌─────────────────────────┐
-                    │  n8n (Docker, separate)  │
-                    │                          │
-                    │  Schedule Trigger (8am)  │
-                    │           │              │
-                    │           ▼              │
-                    │  GET /api/daily-summary  │
-                    │           │              │
-                    │           ▼              │
-                    │  IF total_tasks > 0      │
-                    │      ├──► Email          │
-                    │      └──► Google Sheets  │
-                    └──────────────────────────┘
+                 └──────▲───────┘   └───────────────────────┘
+                        │
+                        │ GET /api/daily-summary
+                        │
+                 ┌──────┴───────────────────┐
+                 │   n8n (Docker Compose     │
+                 │   service, same stack)    │
+                 │                           │
+                 │   Schedule Trigger (8am)  │
+                 │            │              │
+                 │            ▼              │
+                 │   IF total_tasks > 0      │
+                 │       ├──► Email          │
+                 │       └──► Google Sheets  │
+                 └───────────────────────────┘
 ```
+
+All four components — frontend, backend, database, and n8n — run as services within the same `docker-compose.yml`, on the same internal Docker network. n8n reaches the backend by service name (`http://backend:8000`), not by IP address or `host.docker.internal`.
 
 **Why n8n only handles scheduling, not reasoning:** the LLM calls that classify and summarize tasks happen inside the FastAPI backend itself, not in an n8n node. This means the extraction and summarization logic can be tested directly (via the interactive API docs) independent of whether n8n is even running, and could be reused by any other client in the future.
 
 **Why Calendar uses a service account but Sheets uses OAuth:** Calendar access is a backend-to-API call with no human involved, so a non-interactive service account is the correct fit. The Sheets integration runs through n8n's own Google Sheets node, which is built around a human authorizing access — so OAuth is the natural mechanism there instead.
+
+**Why date resolution is precomputed in Python, not left to the LLM:** early testing showed the model could miscalculate relative dates (e.g. resolving "Tuesday" to a date a full week off). Rather than trust LLM arithmetic, the backend generates a lookup table of the next 8 days with their exact dates, and the LLM's job is reduced to matching a mentioned weekday to the correct row — a much more reliable task for a language model than doing date math from scratch.
 
 ---
 
@@ -109,7 +117,7 @@ The system is designed around a clear architectural boundary: **all reasoning (t
 | Transcription | OpenAI Whisper (tiny, local) |
 | Task extraction & summarization | Groq API — Llama 3.3 70B Versatile |
 | Frontend | Next.js + React (TypeScript) |
-| Automation | n8n (Docker) |
+| Automation | n8n |
 | Calendar integration | Google Calendar API (service account) |
 | Spreadsheet logging | Google Sheets API (OAuth via n8n) |
 | Containerization | Docker + Docker Compose |
@@ -139,7 +147,8 @@ frontend/
 │       └── page.tsx              # History page (persistent checkboxes)
 └── Dockerfile
 
-docker-compose.yml
+docker-compose.yml   # orchestrates: db (PostgreSQL), backend, frontend, n8n
+.env                  # root-level, used by docker-compose for POSTGRES_*/GROQ_API_KEY
 ```
 
 ---
@@ -154,23 +163,33 @@ docker-compose.yml
 
 ### Environment Variables
 
-Create a `.env` file in `backend/`:
+Create a `.env` file at the **project root** (used by `docker-compose.yml`):
 
 ```
-DATABASE_URL=postgresql://<user>:<password>@db:5432/minutesminion
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=<your password>
+POSTGRES_DB=minutesminion
 GROQ_API_KEY=<your Groq API key>
 ```
 
 Place your Google Calendar service account key at `backend/google-calendar-credentials.json`, and share your target calendar with that service account's email, granting **"Make changes to events."**
 
-### Run with Docker Compose
+### Run the full stack
 
 ```bash
 docker compose up --build
 ```
 
-- Frontend: `http://localhost:3000`
-- Backend + interactive API docs: `http://localhost:8000/docs`
+This starts all four services together:
+
+| Service | URL |
+|---|---|
+| Frontend | `http://localhost:3000` |
+| Backend + interactive API docs | `http://localhost:8000/docs` |
+| n8n | `http://localhost:5678` |
+| PostgreSQL | `localhost:5432` |
+
+**First-time n8n setup:** workflow configuration lives inside n8n's own data (not something Docker Compose can set up automatically). On first run, open `http://localhost:5678`, create an owner account, and build the daily-summary workflow: Schedule Trigger → HTTP Request (`GET http://backend:8000/api/daily-summary`, using the service name since n8n and the backend share the same Docker network) → IF (`total_tasks > 0`) → Send Email + Google Sheets append.
 
 ### Run without Docker (local development)
 
@@ -187,15 +206,6 @@ cd frontend
 npm install
 npm run dev
 ```
-
-### Optional: n8n Automation
-
-```bash
-docker run -it --rm -p 5678:5678 -v n8n_data:/home/node/.n8n \
-  -e GENERIC_TIMEZONE="Africa/Tunis" -e TZ="Africa/Tunis" \
-  docker.n8n.io/n8nio/n8n
-```
-Configure a workflow: Schedule Trigger → HTTP Request (`GET http://host.docker.internal:8000/api/daily-summary`) → IF (`total_tasks > 0`) → Send Email + Google Sheets append.
 
 ---
 
