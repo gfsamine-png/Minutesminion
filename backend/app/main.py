@@ -10,6 +10,7 @@ from app.database import save_processed_note
 from app.database import get_yesterdays_notes
 from app.database import get_all_notes
 from app.database import toggle_task
+from app.database import init_db
 from app.task_parser import generate_daily_summary
 from app.calendar_service import create_calendar_event
 from datetime import datetime, timedelta
@@ -21,6 +22,11 @@ class TextInput(BaseModel):
 
 
 app = FastAPI()
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
 app.add_middleware(
     CORSMiddleware,

@@ -23,6 +23,14 @@ class ProcessedNote(Base):
     original_filename = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
+def init_db():
+    """Creates any tables defined by models above that don't already exist
+    in the connected database. Safe to call every time the app starts —
+    it does nothing if the tables are already present."""
+    Base.metadata.create_all(bind=engine)
+
+
 from datetime import datetime, timedelta
 
 def get_yesterdays_notes():
@@ -40,6 +48,7 @@ def get_yesterdays_notes():
         return notes
     finally:
         session.close()
+
 def save_processed_note(transcript: str, tasks: list, duration_seconds: float, filename: str):
     session = SessionLocal()
     try:
@@ -55,6 +64,7 @@ def save_processed_note(transcript: str, tasks: list, duration_seconds: float, f
         return note
     finally:
         session.close()
+
 from sqlalchemy.orm.attributes import flag_modified
 
 def get_all_notes():

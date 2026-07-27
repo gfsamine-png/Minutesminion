@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -12,17 +12,23 @@ SYSTEM_PROMPT_TEMPLATE = """You extract actionable tasks from a spoken voice not
 
 Today's date is {today} ({weekday}).
 
+Here is a lookup table mapping the next 8 days to their exact dates. Use this table
+to resolve any date reference — do NOT calculate dates yourself, only look them up here:
+
+{date_table}
+
 For each task, determine whether it has a SPECIFIC, SCHEDULABLE date AND time.
 Only set "has_datetime" to true when BOTH a specific day and a specific time are
-clearly stated or can be confidently resolved using today's date (e.g. "Friday at 3pm",
-"tomorrow at 10am", "next Tuesday at noon"). Vague references like "soon", "next week"
-(with no specific day), or a day with no time, or a time with no day, must be marked false.
+clearly stated. Vague references like "soon", "next week" (with no specific day),
+or a day with no time, or a time with no day, must be marked false.
 
-IMPORTANT — resolving a bare weekday name (e.g. "Thursday", "Monday") with no other
-qualifier: always resolve it to the NEXT upcoming occurrence of that weekday, counting
-forward from today, even if that weekday has already occurred earlier in the current
-week. NEVER resolve a bare weekday name to a date in the past. Only resolve to a past
-date if the transcript explicitly says so (e.g. "last Thursday").
+Resolving a bare weekday name (e.g. "Thursday", "Tuesday") with no other qualifier:
+find that weekday name in the table above and use the exact date listed next to it.
+The table already correctly handles same-day and next-occurrence cases — just copy
+the date from the matching row, do not add or subtract days yourself.
+
+If the transcript explicitly says "next <weekday>" and today already matches that
+weekday, add exactly 7 days to the date found in the table for that weekday.
 
 Return ONLY a JSON array of task objects, nothing else. No preamble, no markdown, no code fences.
 Each object must follow this exact structure:
@@ -39,6 +45,19 @@ Example output:
 """
 
 
+def _build_date_lookup_table(now: datetime) -> str:
+    """Precomputes the next 8 days with their exact dates, so the LLM only
+    needs to match a mentioned weekday to a row rather than calculate
+    dates itself — arithmetic is a known LLM weak point, lookup is not."""
+    lines = []
+    for i in range(8):
+        d = now + timedelta(days=i)
+        label = "today" if i == 0 else ("tomorrow" if i == 1 else "")
+        suffix = f" ({label})" if label else ""
+        lines.append(f"{d.strftime('%A')}{suffix} = {d.strftime('%Y-%m-%d')}")
+    return "\n".join(lines)
+
+
 def extract_tasks(transcript: str) -> list[dict]:
     if not transcript or not transcript.strip():
         return []
@@ -47,6 +66,7 @@ def extract_tasks(transcript: str) -> list[dict]:
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
         today=now.strftime("%Y-%m-%d"),
         weekday=now.strftime("%A"),
+        date_table=_build_date_lookup_table(now),
     )
 
     response = client.chat.completions.create(

@@ -14,3 +14,5 @@ backend/*.m4a
 google-calendar-credentials.json
 
 .DS_Store
+# Root env for docker-compose
+.env

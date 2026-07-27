@@ -10,7 +10,7 @@ const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variabl
 
 interface Task {
   id: number;
-  text: string;A
+  text: string;
   completed: boolean;
 }
 
