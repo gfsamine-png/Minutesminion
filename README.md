@@ -149,6 +149,7 @@ frontend/
 
 docker-compose.yml   # orchestrates: db (PostgreSQL), backend, frontend, n8n
 .env                  # root-level, used by docker-compose for POSTGRES_*/GROQ_API_KEY
+N8N.json              # exported n8n workflow (backup/reference — import via n8n UI)
 ```
 
 ---
@@ -190,6 +191,8 @@ This starts all four services together:
 | PostgreSQL | `localhost:5432` |
 
 **First-time n8n setup:** workflow configuration lives inside n8n's own data (not something Docker Compose can set up automatically). On first run, open `http://localhost:5678`, create an owner account, and build the daily-summary workflow: Schedule Trigger → HTTP Request (`GET http://backend:8000/api/daily-summary`, using the service name since n8n and the backend share the same Docker network) → IF (`total_tasks > 0`) → Send Email + Google Sheets append.
+
+A backup of this workflow is included at the project root (`N8N.json`). To restore it instead of rebuilding manually: in n8n, go to **Workflows → Import from File**, and select `N8N.json`. Note that Google Sheets/Gmail credentials are **not** included in this export (n8n never exports secrets) and must be reconnected manually after import.
 
 ### Run without Docker (local development)
 
