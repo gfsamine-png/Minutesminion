@@ -23,6 +23,17 @@ interface Note {
   created_at: string;
 }
 
+interface AskSource {
+  id: number;
+  transcript: string;
+  created_at: string;
+}
+
+interface AskResult {
+  answer: string;
+  sources: AskSource[];
+}
+
 function formatDate(iso: string) {
   const d = new Date(iso);
   return d.toLocaleString(undefined, {
@@ -33,11 +44,25 @@ function formatDate(iso: string) {
   });
 }
 
+function AskIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function History() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingTask, setPendingTask] = useState<string | null>(null);
+
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [askResult, setAskResult] = useState<AskResult | null>(null);
 
   useEffect(() => {
     fetchNotes();
@@ -47,7 +72,7 @@ export default function History() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/notes");
+      const res = await fetch("/api/notes");
       if (!res.ok) throw new Error("Failed to load history.");
       const data: Note[] = await res.json();
       setNotes(data);
@@ -78,7 +103,7 @@ export default function History() {
 
     try {
       const res = await fetch(
-        `http://127.0.0.1:8000/api/notes/${noteId}/tasks/${taskId}`,
+        `/api/notes/${noteId}/tasks/${taskId}`,
         { method: "PATCH" }
       );
       if (!res.ok) throw new Error("Failed to update task.");
@@ -88,6 +113,36 @@ export default function History() {
       setError(err instanceof Error ? err.message : "Failed to update task.");
     } finally {
       setPendingTask(null);
+    }
+  }
+
+  async function handleAsk() {
+    if (!question.trim() || asking) return;
+
+    setAsking(true);
+    setAskError(null);
+    setAskResult(null);
+
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      if (!res.ok) throw new Error("Failed to get an answer.");
+      const data: AskResult = await res.json();
+      setAskResult(data);
+    } catch (err) {
+      setAskError(err instanceof Error ? err.message : "Failed to get an answer.");
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  function handleAskKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleAsk();
     }
   }
 
@@ -108,6 +163,51 @@ export default function History() {
           </div>
           <p className="eyebrow">All routed notes, most recent first</p>
         </header>
+
+        <section className="ask-card">
+          <div className="ask-header">
+            <AskIcon />
+            <span className="ask-label">Ask about your history</span>
+          </div>
+          <div className="ask-input-row">
+            <textarea
+              className="ask-input"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={handleAskKeyDown}
+              placeholder="e.g. What did I say about the vendor?"
+              rows={2}
+            />
+            <button
+              className="ask-btn"
+              onClick={handleAsk}
+              disabled={!question.trim() || asking}
+            >
+              {asking ? "Thinking…" : "Ask"}
+            </button>
+          </div>
+
+          {askError && <p className="ask-error">{askError}</p>}
+
+          {askResult && (
+            <div className="ask-result">
+              <p className="ask-answer">{askResult.answer}</p>
+              {askResult.sources.length > 0 && (
+                <div className="ask-sources">
+                  <span className="ask-sources-label">Based on</span>
+                  <ul className="ask-sources-list">
+                    {askResult.sources.map((s) => (
+                      <li key={s.id} className="ask-source-item">
+                        <span className="ask-source-date">{formatDate(s.created_at)}</span>
+                        <span className="ask-source-text">{s.transcript}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
 
         {error && (
           <div className="error-banner">
@@ -294,6 +394,130 @@ export default function History() {
           text-transform: uppercase;
           color: var(--text-tertiary);
           margin: 0.4rem 0 0 1.15rem;
+        }
+
+        .ask-card {
+          background: var(--surface);
+          border: 1px solid var(--border-soft);
+          border-radius: 12px;
+          padding: 1.1rem 1.2rem;
+          margin-bottom: 1.5rem;
+        }
+        .ask-header {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          color: var(--amber);
+          margin-bottom: 0.8rem;
+        }
+        .ask-label {
+          font-family: var(--font-mono), monospace;
+          font-size: 0.72rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+        }
+        .ask-input-row {
+          display: flex;
+          gap: 0.6rem;
+          align-items: flex-start;
+        }
+        .ask-input {
+          flex: 1;
+          resize: none;
+          background: var(--surface-raised);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.65rem 0.8rem;
+          color: var(--text-primary);
+          font-family: var(--font-body), sans-serif;
+          font-size: 0.88rem;
+          line-height: 1.4;
+          outline: none;
+          transition: border-color 0.15s ease;
+        }
+        .ask-input:focus {
+          border-color: var(--amber);
+        }
+        .ask-input::placeholder {
+          color: var(--text-tertiary);
+        }
+        .ask-btn {
+          flex-shrink: 0;
+          background: var(--amber);
+          color: #16130a;
+          border: none;
+          border-radius: 8px;
+          padding: 0 1.1rem;
+          height: 42px;
+          font-family: var(--font-body), sans-serif;
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: transform 0.1s ease, opacity 0.15s ease;
+        }
+        .ask-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+        }
+        .ask-btn:disabled {
+          background: var(--border);
+          color: var(--text-tertiary);
+          cursor: not-allowed;
+        }
+
+        .ask-error {
+          margin: 0.7rem 0 0;
+          font-size: 0.8rem;
+          color: #f0b3b3;
+        }
+
+        .ask-result {
+          margin-top: 0.9rem;
+          padding-top: 0.9rem;
+          border-top: 1px solid var(--border-soft);
+        }
+        .ask-answer {
+          margin: 0;
+          font-size: 0.9rem;
+          line-height: 1.6;
+          color: var(--text-primary);
+        }
+        .ask-sources {
+          margin-top: 0.8rem;
+        }
+        .ask-sources-label {
+          font-family: var(--font-mono), monospace;
+          font-size: 0.65rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--text-tertiary);
+        }
+        .ask-sources-list {
+          list-style: none;
+          margin: 0.5rem 0 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+        .ask-source-item {
+          display: flex;
+          gap: 0.6rem;
+          font-size: 0.78rem;
+          background: var(--surface-raised);
+          border: 1px solid var(--border-soft);
+          border-radius: 6px;
+          padding: 0.45rem 0.6rem;
+        }
+        .ask-source-date {
+          font-family: var(--font-mono), monospace;
+          color: var(--teal);
+          flex-shrink: 0;
+        }
+        .ask-source-text {
+          color: var(--text-secondary);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .status-text {

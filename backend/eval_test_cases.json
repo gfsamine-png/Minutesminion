@@ -1,0 +1,69 @@
+[
+  {
+    "id": "clean_multi",
+    "transcript": "Please remember to update the readme file and email the client the spec",
+    "expected_tasks": ["Update the readme file", "Email the client the spec"]
+  },
+  {
+    "id": "garbled_redmi",
+    "transcript": "Please remember to update the Redmi file today and they made the client the final project spec",
+    "expected_tasks": ["Update the Redmi file", "Send the client the final project spec"]
+  },
+  {
+    "id": "single_clean",
+    "transcript": "Remember to call the vendor about the shipment",
+    "expected_tasks": ["Call the vendor about the shipment"]
+  },
+  {
+    "id": "no_tasks",
+    "transcript": "Just thinking out loud today, nothing in particular on my mind",
+    "expected_tasks": []
+  },
+  {
+    "id": "date_and_time",
+    "transcript": "I want to see if the client is available at Friday 5pm, if yes I want to meet with him",
+    "expected_tasks": [
+      "Check if the client is available Friday at 5pm",
+      "Meet with the client"
+    ]
+  },
+  {
+    "id": "day_only_no_time",
+    "transcript": "Need to chase up the vendor one more time about that shipment on Thursday",
+    "expected_tasks": ["Chase up the vendor about the shipment"]
+  },
+  {
+    "id": "garbled_vendor",
+    "transcript": "call the vendor again about the shipment delay they said",
+    "expected_tasks": ["Call the vendor again about the shipment delay"]
+  },
+  {
+    "id": "urgent_client",
+    "transcript": "Email the client the final report before end of day, this is urgent",
+    "expected_tasks": ["Email the client the final report"]
+  },
+  {
+    "id": "mundane_task",
+    "transcript": "Also need to buy snacks for the office and water the plants",
+    "expected_tasks": ["Buy snacks for the office", "Water the plants"]
+  },
+  {
+    "id": "pronoun_ambiguity",
+    "transcript": "Submit the invoice to finance, they are waiting on it urgently",
+    "expected_tasks": ["Submit the invoice to finance"]
+  },
+  {
+    "id": "rambling_multi",
+    "transcript": "So today was pretty busy, I need to schedule a new meeting with the client, also don't forget to call the new client back, and honestly I should probably organize my desk too",
+    "expected_tasks": [
+      "Schedule a new meeting with the client",
+      "Call the new client back",
+      "Organize desk"
+    ]
+  },
+  {
+    "id": "meeting_time_only",
+    "transcript": "Let's meet with Amine Tuesday at 10 AM",
+    "expected_tasks": ["Meet with Amine"]
+  }
+]

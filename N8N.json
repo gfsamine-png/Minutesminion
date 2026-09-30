@@ -23,7 +23,7 @@
     },
     {
       "parameters": {
-        "url": "http://host.docker.internal:8000/api/daily-summary",
+        "url": "http://backend:8000/api/daily-summary",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",

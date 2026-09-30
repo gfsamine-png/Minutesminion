@@ -1,8 +1,11 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.sql import func
+from pgvector.sqlalchemy import Vector
 from dotenv import load_dotenv
+
+from app.embedding_service import EMBEDDING_DIMENSIONS
 
 load_dotenv()
 
@@ -22,12 +25,16 @@ class ProcessedNote(Base):
     duration_seconds = Column(Float)
     original_filename = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    embedding = Column(Vector(EMBEDDING_DIMENSIONS))
 
 
 def init_db():
-    """Creates any tables defined by models above that don't already exist
-    in the connected database. Safe to call every time the app starts —
-    it does nothing if the tables are already present."""
+    """Enables the pgvector extension (if not already enabled), then
+    creates any tables defined by models above that don't already exist.
+    Safe to call every time the app starts."""
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
     Base.metadata.create_all(bind=engine)
 
 
@@ -49,7 +56,7 @@ def get_yesterdays_notes():
     finally:
         session.close()
 
-def save_processed_note(transcript: str, tasks: list, duration_seconds: float, filename: str):
+def save_processed_note(transcript: str, tasks: list, duration_seconds: float, filename: str, embedding: list[float] = None):
     session = SessionLocal()
     try:
         note = ProcessedNote(
@@ -57,6 +64,7 @@ def save_processed_note(transcript: str, tasks: list, duration_seconds: float, f
             tasks=tasks,
             duration_seconds=duration_seconds,
             original_filename=filename,
+            embedding=embedding,
         )
         session.add(note)
         session.commit()
@@ -87,5 +95,45 @@ def toggle_task(note_id: int, task_id: int):
         session.commit()
         session.refresh(note)
         return note
+    finally:
+        session.close()
+
+def schedule_task(note_id: int, task_id: int, scheduled_at: str):
+    """Completes a task that had a known date but a missing time (needs_time),
+    by setting its final scheduled_at and marking it fully schedulable.
+    Returns the updated note, or None if not found."""
+    session = SessionLocal()
+    try:
+        note = session.query(ProcessedNote).filter(ProcessedNote.id == note_id).first()
+        if not note:
+            return None
+        for t in note.tasks:
+            if t["id"] == task_id:
+                t["scheduled_at"] = scheduled_at
+                t["has_datetime"] = True
+                t["needs_time"] = False
+        flag_modified(note, "tasks")
+        session.commit()
+        session.refresh(note)
+        return note
+    finally:
+        session.close()
+
+
+def search_similar_notes(query_embedding: list[float], limit: int = 5):
+    """Returns the notes whose transcript embeddings are most similar to
+    the given query embedding, closest first, using pgvector's cosine
+    distance operator. Notes with no embedding (e.g. saved before this
+    feature existed) are excluded automatically since comparison against
+    NULL returns no match."""
+    session = SessionLocal()
+    try:
+        return (
+            session.query(ProcessedNote)
+            .filter(ProcessedNote.embedding.isnot(None))
+            .order_by(ProcessedNote.embedding.cosine_distance(query_embedding))
+            .limit(limit)
+            .all()
+        )
     finally:
         session.close()

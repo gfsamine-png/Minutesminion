@@ -12,9 +12,14 @@ interface Task {
   id: number;
   text: string;
   completed: boolean;
+  has_datetime: boolean;
+  scheduled_at: string | null;
+  needs_time: boolean;
+  known_date: string | null;
 }
 
 interface ProcessResult {
+  id: number;
   transcript: string;
   tasks: Task[];
   duration_seconds?: number;
@@ -49,6 +54,35 @@ function TextIcon() {
   );
 }
 
+function CalendarIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4M8 3v4M3 10h18" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function formatScheduled(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatKnownDate(dateStr: string) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  return d.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export default function Home() {
   const [mode, setMode] = useState<Mode>("audio");
   const [file, setFile] = useState<File | null>(null);
@@ -63,6 +97,12 @@ export default function Home() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [timeInputs, setTimeInputs] = useState<Record<number, string>>({});
+  const [schedulingTaskId, setSchedulingTaskId] = useState<number | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [clarifyQueue, setClarifyQueue] = useState<number[]>([]);
+  const [modalTime, setModalTime] = useState("");
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0];
@@ -169,13 +209,62 @@ export default function Home() {
 
       const data: ProcessResult = await res.json();
       setResult(data);
+      setTimeInputs({});
       setJustCompleted(true);
       setTimeout(() => setJustCompleted(false), 1800);
+
+      const needsClarification = data.tasks
+        .filter((t) => t.needs_time && t.known_date)
+        .map((t) => t.id);
+      setClarifyQueue(needsClarification);
+      setModalTime("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Processing failed.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSetTime(taskId: number, time: string, advanceQueue: boolean) {
+    if (!result || !time) return;
+
+    setSchedulingTaskId(taskId);
+    setScheduleError(null);
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:8000/api/notes/${result.id}/tasks/${taskId}/schedule`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ time }),
+        }
+      );
+      if (!res.ok) {
+        const errBody = await res.json();
+        throw new Error(errBody.detail || "Failed to set time.");
+      }
+      const data: { id: number; tasks: Task[] } = await res.json();
+      setResult({ ...result, tasks: data.tasks });
+      if (advanceQueue) {
+        setClarifyQueue((prev) => prev.filter((id) => id !== taskId));
+        setModalTime("");
+      }
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : "Failed to set time.");
+    } finally {
+      setSchedulingTaskId(null);
+    }
+  }
+
+  function skipClarification(taskId: number) {
+    setClarifyQueue((prev) => prev.filter((id) => id !== taskId));
+    setModalTime("");
+  }
+
+  function reopenClarification(taskId: number) {
+    setClarifyQueue((prev) => (prev.includes(taskId) ? prev : [taskId, ...prev]));
+    setModalTime("");
   }
 
   const canSubmit = mode === "audio" ? !!file : text.trim().length > 0;
@@ -322,25 +411,48 @@ export default function Home() {
                 </span>
               </div>
 
+              {scheduleError && <p className="schedule-error">{scheduleError}</p>}
+
               {result.tasks.length === 0 ? (
                 <p className="empty-tasks">No actionable tasks detected in this note.</p>
               ) : (
                 <ul className="manifest-list">
                   {result.tasks.map((task, i) => (
-                    <li
-                      key={task.id}
-                      className={`manifest-item ${task.completed ? "is-checked" : ""}`}
-                      onClick={() => toggleTaskLocal(i)}
-                    >
-                      <span className="manifest-index">{String(i + 1).padStart(2, "0")}</span>
-                      <span className="manifest-check">
-                        {task.completed && (
-                          <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                            <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </span>
-                      <span className="manifest-text">{task.text}</span>
+                    <li key={task.id} className="manifest-item-wrap">
+                      <div
+                        className={`manifest-item ${task.completed ? "is-checked" : ""}`}
+                        onClick={() => toggleTaskLocal(i)}
+                      >
+                        <span className="manifest-index">{String(i + 1).padStart(2, "0")}</span>
+                        <span className="manifest-check">
+                          {task.completed && (
+                            <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                              <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="manifest-body">
+                          <span className="manifest-text">{task.text}</span>
+                          {task.has_datetime && task.scheduled_at && (
+                            <span className="scheduled-badge">
+                              <CalendarIcon />
+                              {formatScheduled(task.scheduled_at)}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+
+                      {task.needs_time && task.known_date && (
+                        <button
+                          className="reopen-clarify-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            reopenClarification(task.id);
+                          }}
+                        >
+                          Set time for {formatKnownDate(task.known_date)}
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -352,6 +464,52 @@ export default function Home() {
           </section>
         )}
       </main>
+
+      {result && clarifyQueue.length > 0 && (() => {
+        const currentTaskId = clarifyQueue[0];
+        const currentTask = result.tasks.find((t) => t.id === currentTaskId);
+        if (!currentTask || !currentTask.known_date) return null;
+        return (
+          <div className="clarify-overlay">
+            <div className="clarify-modal">
+              <span className="clarify-modal-eyebrow">
+                Missing time · {clarifyQueue.length} task{clarifyQueue.length === 1 ? "" : "s"} to schedule
+              </span>
+              <h2 className="clarify-modal-task">{currentTask.text}</h2>
+              <p className="clarify-modal-question">
+                You said <strong>{formatKnownDate(currentTask.known_date)}</strong> — what time works?
+              </p>
+
+              <input
+                type="time"
+                className="clarify-modal-input"
+                value={modalTime}
+                onChange={(e) => setModalTime(e.target.value)}
+                autoFocus
+              />
+
+              {scheduleError && <p className="clarify-modal-error">{scheduleError}</p>}
+
+              <div className="clarify-modal-actions">
+                <button
+                  className="clarify-modal-skip"
+                  onClick={() => skipClarification(currentTaskId)}
+                >
+                  Skip for now
+                </button>
+                <button
+                  className="clarify-modal-confirm"
+                  disabled={!modalTime || schedulingTaskId === currentTaskId}
+                  onClick={() => handleSetTime(currentTaskId, modalTime, true)}
+                >
+                  {schedulingTaskId === currentTaskId ? "Scheduling…" : "Confirm time"}
+                  <span className="arrow">→</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <style jsx global>{`
         * { box-sizing: border-box; }
@@ -802,21 +960,29 @@ export default function Home() {
           margin: 0;
         }
 
+        .schedule-error {
+          font-size: 0.78rem;
+          color: #f0b3b3;
+          margin: 0 0 0.6rem;
+        }
+
         .manifest-list {
           list-style: none;
           margin: 0;
           padding: 0;
+        }
+        .manifest-item-wrap {
+          border-bottom: 1px solid var(--border-soft);
+        }
+        .manifest-item-wrap:last-child {
+          border-bottom: none;
         }
         .manifest-item {
           display: flex;
           align-items: flex-start;
           gap: 0.65rem;
           padding: 0.55rem 0.15rem;
-          border-bottom: 1px solid var(--border-soft);
           cursor: pointer;
-        }
-        .manifest-item:last-child {
-          border-bottom: none;
         }
         .manifest-index {
           font-family: var(--font-mono), monospace;
@@ -842,6 +1008,11 @@ export default function Home() {
           background: rgba(79, 216, 196, 0.12);
           border-color: var(--teal);
         }
+        .manifest-body {
+          display: flex;
+          flex-direction: column;
+          gap: 0.3rem;
+        }
         .manifest-text {
           font-size: 0.88rem;
           line-height: 1.5;
@@ -852,11 +1023,171 @@ export default function Home() {
           color: var(--text-tertiary);
           text-decoration: line-through;
         }
+        .scheduled-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          width: fit-content;
+          font-family: var(--font-mono), monospace;
+          font-size: 0.68rem;
+          letter-spacing: 0.02em;
+          color: var(--amber);
+          background: rgba(232, 163, 61, 0.08);
+          border: 1px solid rgba(232, 163, 61, 0.25);
+          border-radius: 5px;
+          padding: 0.15rem 0.45rem;
+        }
         .manifest-note {
           margin: 0.9rem 0 0;
           font-size: 0.72rem;
           color: var(--text-tertiary);
           font-style: italic;
+        }
+
+        .reopen-clarify-btn {
+          width: fit-content;
+          background: rgba(232, 163, 61, 0.08);
+          border: 1px dashed rgba(232, 163, 61, 0.35);
+          border-radius: 6px;
+          padding: 0.25rem 0.55rem;
+          font-family: var(--font-mono), monospace;
+          font-size: 0.68rem;
+          color: var(--amber);
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+        .reopen-clarify-btn:hover {
+          background: rgba(232, 163, 61, 0.15);
+        }
+
+        .clarify-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(6, 7, 9, 0.82);
+          backdrop-filter: blur(3px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 50;
+          padding: 1.5rem;
+          animation: overlay-in 0.18s ease;
+        }
+        @keyframes overlay-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        .clarify-modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 2.2rem 2rem;
+          max-width: 440px;
+          width: 100%;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+          animation: modal-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes modal-in {
+          from { opacity: 0; transform: translateY(10px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .clarify-modal-eyebrow {
+          display: block;
+          font-family: var(--font-mono), monospace;
+          font-size: 0.68rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: var(--amber);
+          margin-bottom: 0.9rem;
+        }
+        .clarify-modal-task {
+          font-family: var(--font-display), sans-serif;
+          font-size: 1.4rem;
+          font-weight: 700;
+          color: var(--text-primary);
+          margin: 0 0 0.6rem;
+          line-height: 1.3;
+        }
+        .clarify-modal-question {
+          font-size: 0.92rem;
+          color: var(--text-secondary);
+          margin: 0 0 1.5rem;
+        }
+        .clarify-modal-question strong {
+          color: var(--text-primary);
+        }
+
+        .clarify-modal-input {
+          width: 100%;
+          background: var(--surface-raised);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.9rem 1rem;
+          color: var(--text-primary);
+          font-family: var(--font-mono), monospace;
+          font-size: 1.4rem;
+          text-align: center;
+          outline: none;
+          transition: border-color 0.15s ease;
+        }
+        .clarify-modal-input:focus {
+          border-color: var(--amber);
+        }
+
+        .clarify-modal-error {
+          margin: 0.8rem 0 0;
+          font-size: 0.8rem;
+          color: #f0b3b3;
+          text-align: center;
+        }
+
+        .clarify-modal-actions {
+          display: flex;
+          gap: 0.7rem;
+          margin-top: 1.6rem;
+        }
+        .clarify-modal-skip {
+          flex-shrink: 0;
+          background: transparent;
+          border: 1px solid var(--border);
+          border-radius: 9px;
+          padding: 0 1rem;
+          height: 46px;
+          color: var(--text-tertiary);
+          font-family: var(--font-body), sans-serif;
+          font-size: 0.85rem;
+          cursor: pointer;
+          transition: border-color 0.15s ease, color 0.15s ease;
+        }
+        .clarify-modal-skip:hover {
+          border-color: var(--text-secondary);
+          color: var(--text-secondary);
+        }
+        .clarify-modal-confirm {
+          flex: 1;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          background: var(--amber);
+          color: #16130a;
+          border: none;
+          border-radius: 9px;
+          height: 46px;
+          font-family: var(--font-body), sans-serif;
+          font-size: 0.88rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: transform 0.1s ease;
+        }
+        .clarify-modal-confirm:hover:not(:disabled) {
+          transform: translateY(-1px);
+        }
+        .clarify-modal-confirm:disabled {
+          background: var(--border);
+          color: var(--text-tertiary);
+          cursor: not-allowed;
         }
       `}</style>
     </div>
